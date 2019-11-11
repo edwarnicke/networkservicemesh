@@ -1,0 +1,65 @@
+name: helm-publish
+
+on: [push]
+
+jobs:
+  helm-publish:
+    runs-on: ubuntu-18.04
+    if: github.repository == 'edwarnicke/networkservicemesh'
+    steps:
+      - uses: actions/checkout@v1
+        with:
+          repository: edwarnicke/helm-charts
+          ref: refs/heads/master
+      - uses: actions/checkout@v1
+      - name: Prepare Helm Commit Message
+        run: |
+          cat << EOF > /tmp/commitmsg
+          Update helm-charts/ for networkservicemesh/ commit ${GITHUB_SHA:8:8}
+
+          https://github.com/networkservicemesh/networkservicemesh/commit/${GITHUB_SHA:8:8}
+
+          Changes to deployment/helm:
+
+          $(git diff HEAD^1 deployments/helm/)
+
+          $(git log -1 | grep Signed-off-by | sed 's/^[ ]*//')
+
+          EOF
+          cat /tmp/commitmsg
+      - name: Printenv
+        run: |
+          printenv
+          git remote -v
+      - name: Install helm
+        run: |
+          curl -L https://git.io/get_helm.sh | bash
+          helm init --client-only
+      - name: Publish helm-charts
+        run: |
+          if $(git diff --quiet HEAD^1 deployments/helm/)
+          then
+            "deployments/helm unchanged, no need to publish"
+          else
+            cd ${GITHUB_WORKSPACE}/../helm-charts/
+            git rm -f *.tgz
+            helm repo index .
+            helm package ${GITHUB_WORKSPACE}/deployments/helm/*
+            helm repo index .
+            git checkout ${GITHUB_REF} || echo "GITHUB_REF: ${GITHUB_REF} does not exist"
+            git checkout -B ${GITHUB_REF}
+            git add .
+            git status
+            git config --global user.email "helm-publish@networkservicemesh.io"
+            git config --global user.name "Helm Publish Github Action"
+            git commit -s -F /tmp/commitmsg
+            git log -1
+          fi
+  skip-helm-publish:
+    runs-on: ubuntu-18.04
+    if: github.repository != 'edwarnicke/networkservicemesh'
+    steps:
+      - uses: actions/checkout@v1
+      - name: Run a multi-line script
+        run: |
+          echo "Skipping publishing of helmcharts"
